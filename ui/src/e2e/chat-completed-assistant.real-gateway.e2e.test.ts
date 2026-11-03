@@ -7,6 +7,7 @@ import { appendTranscriptMessages } from "../../../src/config/sessions/session-a
 import { ensureGatewayOwnerProfile } from "../../../src/state/user-profiles.ts";
 import { cleanupSessionStateForTest } from "../../../src/test-utils/session-state-cleanup.ts";
 import type { OpenClawTestInstance } from "../../../test/helpers/openclaw-test-instance.ts";
+import { createDeferred } from "../../../test/helpers/promise.ts";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-screenshot.ts";
@@ -152,91 +153,6 @@ suite.define(() => {
         let socketErrors = 0;
         let restartAnnounced = false;
         let restartRecovered = false;
-        let restartStarted = false;
-        let documentPolicy: { terminalEnabled: boolean | null; buildId: string | null };
-        const navigationEvidence: Array<Record<string, unknown>> = [];
-        const bootstrapEvidence: Array<Record<string, boolean | null>> = [];
-        const safeLocation = (value: string) => {
-          const url = new URL(value);
-          return {
-            path: ["/", "/chat", "/index.html"].includes(url.pathname)
-              ? url.pathname
-              : url.pathname.startsWith("/chat/")
-                ? "/chat/*"
-                : "/other",
-            queryKeys: [...url.searchParams.keys()]
-              .filter((key) => /^[a-zA-Z0-9_.-]{1,64}$/.test(key))
-              .slice(0, 16),
-          };
-        };
-        // This suite owns Chromium. Retain only bounded, redacted navigation cause facts.
-        const cdp = await page.context().newCDPSession(page);
-        await cdp.send("Network.enable");
-        await cdp.send("Page.enable");
-        const rootFrame = (await cdp.send("Page.getFrameTree")).frameTree.frame.id;
-        cdp.on("Page.frameScheduledNavigation", (event) => {
-          if (restartStarted && event.frameId === rootFrame && navigationEvidence.length < 16) {
-            navigationEvidence.push({
-              kind: "scheduled",
-              reason: event.reason,
-              ...safeLocation(event.url),
-            });
-          }
-        });
-        cdp.on("Network.requestWillBeSent", (event) => {
-          if (
-            restartStarted &&
-            event.frameId === rootFrame &&
-            event.type === "Document" &&
-            navigationEvidence.length < 16
-          ) {
-            navigationEvidence.push({
-              kind: "document",
-              ...safeLocation(event.request.url),
-              initiator: event.initiator.type,
-              frames: event.initiator.stack?.callFrames.slice(0, 8).map((frame) => {
-                const url = new URL(frame.url, suite.server.baseUrl);
-                return {
-                  function: frame.functionName.replace(/[^a-zA-Z0-9_$ .<>-]/g, "").slice(0, 100),
-                  source: /^https?:$/.test(url.protocol)
-                    ? url.pathname
-                        .split("/")
-                        .pop()
-                        ?.replace(/[^a-zA-Z0-9_.-]/g, "")
-                        .slice(0, 120)
-                    : "non-http",
-                  line: frame.lineNumber,
-                  column: frame.columnNumber,
-                };
-              }),
-            });
-          }
-        });
-        page.on("response", async (response) => {
-          if (
-            !restartStarted ||
-            !new URL(response.url()).pathname.endsWith("/control-ui-config.json") ||
-            !response.ok() ||
-            bootstrapEvidence.length >= 8
-          ) {
-            return;
-          }
-          try {
-            const config = asOptionalRecord(await response.json());
-            if (bootstrapEvidence.length < 8) {
-              bootstrapEvidence.push({
-                terminalEnabled:
-                  typeof config?.terminalEnabled === "boolean" ? config.terminalEnabled : null,
-                terminalMatchesDocument: documentPolicy.terminalEnabled === config?.terminalEnabled,
-                buildMatchesDocument: documentPolicy.buildId === config?.serverBuildId,
-              });
-            }
-          } catch {
-            if (bootstrapEvidence.length < 8) {
-              bootstrapEvidence.push({ readable: false });
-            }
-          }
-        });
         const connectOutcomes: Array<{ ok: boolean; code?: string }> = [];
         page.on("framenavigated", (frame) => {
           if (frame === page.mainFrame()) {
@@ -350,8 +266,6 @@ suite.define(() => {
                   exitCode: instance.child?.exitCode ?? null,
                   signalCode: instance.child?.signalCode ?? null,
                   inProcessRestart: instance.logs().includes(inProcessRestartMarker),
-                  navigationEvidence,
-                  bootstrapEvidence,
                 },
               },
               null,
@@ -564,34 +478,28 @@ suite.define(() => {
             stateDir: instance.stateDir,
             rootPath: instance.state.root,
           });
+          // Gate only future sockets: blocking HTTP also triggers unrelated stale-asset recovery.
+          const reconnectGate = createDeferred();
+          await page.routeWebSocket(`${instance.url}/**`, async (socket) => {
+            await reconnectGate.promise;
+            socket.connectToServer();
+          });
           connectionsBeforeRestart = connections;
           mainFrameNavigationsBeforeRestart = mainFrameNavigations;
-          documentPolicy = await page.evaluate(() => {
-            const root = document.documentElement;
-            const terminal = root.getAttribute("data-openclaw-terminal-enabled");
-            const config = JSON.parse(root.getAttribute("data-openclaw-bootstrap-config") ?? "{}");
-            return {
-              terminalEnabled: terminal === "true" ? true : terminal === "false" ? false : null,
-              buildId: typeof config.serverBuildId === "string" ? config.serverBuildId : null,
-            };
-          });
           const restartStart = reads.length;
-          restartStarted = true;
-          // Signal only the fixture command; its custody adapter owns eventual tree cleanup.
-          process.kill(gatewayPid, "SIGUSR2");
-          await page
-            .getByRole("heading", { name: "OpenClaw is restarting", exact: true })
-            .waitFor();
-          expect(restartAnnounced).toBe(true);
           try {
-            // Hold only transport recovery; transcript layout and real Gateway startup keep running.
-            await page.context().setOffline(true);
+            // Signal only the fixture command; its custody adapter owns eventual tree cleanup.
+            process.kill(gatewayPid, "SIGUSR2");
+            await page
+              .getByRole("heading", { name: "OpenClaw is restarting", exact: true })
+              .waitFor();
+            expect(restartAnnounced).toBe(true);
             expect(await retainedViewState()).toEqual(expectedViewState);
             expect(await composer.inputValue()).toBe(draft);
             await pane.getByText(answer, { exact: true }).waitFor({ state: "visible" });
             await captureRestart("restarting");
           } finally {
-            await page.context().setOffline(false);
+            reconnectGate.resolve();
           }
 
           await expect.poll(() => connections).toBeGreaterThan(connectionsBeforeRestart);
