@@ -41,7 +41,7 @@ export class SqliteWorkerInputAdmission {
     };
   }
 
-  open<T>(
+  async open<T>(
     bytes: number,
     databasePath: string,
     dispatch: () => Promise<T>,
@@ -81,17 +81,18 @@ export class SqliteWorkerInputAdmission {
       );
     // Unknown actors reserve their admission turn synchronously. A published actor can attach
     // independently, but still retains its input budget and participates in drainage.
-    return (
-      reuse
+    try {
+      return await (reuse
         ? Promise.resolve()
             .then(reuse)
             .then((store) => (store === undefined ? enqueue() : store))
-        : enqueue()
-    ).finally(() => {
+        : enqueue());
+    } finally {
+      // Reservation performs filesystem admission synchronously and can fail before dispatch.
       this.opens.delete(settled.promise);
       release();
       settled.resolve();
-    });
+    }
   }
 
   async joinOpens(): Promise<void> {
