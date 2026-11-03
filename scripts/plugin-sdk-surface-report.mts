@@ -237,7 +237,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: approved lightweight nullable request-header projection for provider transports.
       // +1: approved shared automation tool-default selection before policy and approval.
       // +2: reconcile the accepted public entrypoint inventory after the cron budget update.
-      161,
+      // +1: maintainer-approved browser-extension-host subpath for plugin-requested extension hosting (#191921, approved by Josh Lehman, 2026-11-03).
+      162,
       env,
     ),
     publicExports: readPluginSdkSurfaceBudgetEnv(
@@ -310,7 +311,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: accepted WorkerResourceReceipt type on plugin-entry (#189019).
       // +3: accepted WorkerRetention policy, operation, and observation types (#189346).
       // +1: accepted pluginCommandResultContinuesAgent for native command continuation.
-      3859,
+      // +5: the same browser-extension-host contract types and registration entrypoint (#191921).
+      3864,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -362,7 +364,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +3: Decision execution, V1 compatibility, and callable-tool prompt guidance.
       // +1: the same diagnostic trace-context normalizer (#189133).
       // +1: the same plugin-command continuation classifier.
-      2232,
+      // +2: the same browser-extension-host registration callables (#191921).
+      2234,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
