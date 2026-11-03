@@ -124,7 +124,9 @@ export function Config(props: ConfigProps) {
           ),
         }
       : formSchema;
-    const editorSchema = editorSchemaBase && omitCuratedOwnedConfigLeaves(editorSchemaBase);
+    // The page already removed the OpenClaw ID keys while its Labs switch is off.
+    const editorSchema =
+      editorSchemaBase && omitCuratedOwnedConfigLeaves(editorSchemaBase, "", true);
     return { channelGroups, channelGroup, editorSchema, setupSchema };
   });
   const state = createMemo(() => {

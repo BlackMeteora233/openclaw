@@ -4,9 +4,21 @@ import {
   type GatewayProtocolSocket,
   type GatewayProtocolSocketHandlers,
 } from "@openclaw/gateway-client/browser";
+import { hasEmbedderTransport } from "../app/remote-ingress.ts";
 import { gatewayWebSocketTransportUrl, uiDevGatewayResourceUrl } from "../dev-gateway.ts";
 import { formatUiError } from "../lib/format-error.ts";
 import { listen } from "../lib/reactive/listener.ts";
+
+declare global {
+  /**
+   * Transport installed by an embedding loader (the OpenClaw ID claw loader's
+   * /_loader/inject.js). It returns a WebSocket-compatible socket for Gateway
+   * URLs it carries over its tunnel, or undefined to use the browser WebSocket.
+   */
+  interface Window {
+    ["__openclawTransport"]?: { createWebSocket(url: string): WebSocket | undefined };
+  }
+}
 
 const BROWSER_WEBSOCKET_CONSTRUCTOR_ERROR_CODE = "BROWSER_WEBSOCKET_CONSTRUCTOR_ERROR";
 export const BROWSER_WEBSOCKET_SECURITY_ERROR_CODE = "BROWSER_WEBSOCKET_SECURITY_ERROR";
@@ -76,7 +88,11 @@ export function createBrowserGatewaySocket(
   url: string,
   handlers: GatewayProtocolSocketHandlers,
 ): GatewayProtocolSocket {
-  const socket = new WebSocket(gatewayWebSocketTransportUrl(url));
+  const transportUrl = gatewayWebSocketTransportUrl(url);
+  const socket =
+    (hasEmbedderTransport()
+      ? window["__openclawTransport"]?.createWebSocket(transportUrl)
+      : undefined) ?? new WebSocket(transportUrl);
   const listeners = new AbortController();
   const listenerOptions = { signal: listeners.signal };
   let opening = true;

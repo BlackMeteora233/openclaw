@@ -80,6 +80,14 @@ export const LAB_FEATURES = (
     },
     {
       ...BOOLEAN_GATE,
+      id: "openclawId",
+      docsUrl: "https://docs.openclaw.ai/concepts/experimental-features#openclaw-id-remote-access",
+      configPath: ["gateway", "openclawId", "enabled"],
+      // Off writes false and keeps the service URLs an operator configured.
+      resetScope: null,
+    },
+    {
+      ...BOOLEAN_GATE,
       id: "workerDesktop",
       docsUrl: "https://docs.openclaw.ai/gateway/cloud-workers#desktop-interactive",
       configPath: ["cloudWorkers", "desktop"],
