@@ -14,6 +14,40 @@ export function gatewayStatusLabel(kind: GatewayStatusKind | "connected", queued
     : status;
 }
 
+export function GatewayHoldingNotice(props: {
+  kind:
+    | Exclude<GatewayStatusKind, "reload-required" | "suspending" | "suspended">
+    | "updating"
+    | null;
+  onRetry: () => void;
+  inert: boolean;
+}): JSX.Element {
+  return (
+    <Show when={props.kind}>
+      <section
+        class="gateway-holding-notice"
+        aria-label={t(`connection.holding.${props.kind}.title`)}
+        inert={props.inert}
+      >
+        <span class="gateway-holding-notice__icon" aria-hidden="true">
+          <Show when={props.kind !== "offline"} fallback={<Icon name="alertTriangle" />}>
+            <span class="session-run-spinner" />
+          </Show>
+        </span>
+        <div class="gateway-holding-notice__content">
+          <h2>{t(`connection.holding.${props.kind}.title`)}</h2>
+          <p>{t(`connection.holding.${props.kind}.description`)}</p>
+        </div>
+        <Show when={props.kind === "offline"}>
+          <button class="btn btn--sm" type="button" onClick={() => props.onRetry()}>
+            {t("connection.retryNow")}
+          </button>
+        </Show>
+      </section>
+    </Show>
+  );
+}
+
 export function GatewayStatus(params: GatewayStatusProps & { row?: boolean }): JSX.Element {
   let retry: HTMLButtonElement | undefined;
   const canRetry = () => params.onRetry && canRetryGatewayStatus(params.kind);

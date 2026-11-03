@@ -1377,6 +1377,40 @@ const startupEnglish = {
     suspended: "Suspended",
     retryNow: "Retry now",
     queued: "{count} queued",
+    holding: {
+      connecting: {
+        title: "Connecting to OpenClaw",
+        description:
+          "Waiting for the Gateway. This page will continue when the connection is ready.",
+      },
+      starting: {
+        title: "OpenClaw is starting",
+        description: "The Gateway is getting ready. This page will reconnect automatically.",
+      },
+      restarting: {
+        title: "OpenClaw is restarting",
+        description:
+          "Keep this page open. Your conversation and draft will stay here while we reconnect.",
+      },
+      updating: {
+        title: "OpenClaw is updating",
+        description:
+          "You can keep using this page. If the Gateway restarts, we will reconnect automatically.",
+      },
+      reconnecting: {
+        title: "Reconnecting to OpenClaw",
+        description: "The connection was interrupted. Your conversation and draft are still here.",
+      },
+      restoring: {
+        title: "Restoring your conversation",
+        description: "The Gateway is connected. We are catching up on the latest activity.",
+      },
+      offline: {
+        title: "OpenClaw is disconnected",
+        description:
+          "Your conversation and draft are still here. Check the connection, then try again.",
+      },
+    },
     offlineChangesDiscarded: "Offline changes discarded: {count}",
     offlineChangesReloadBlocked:
       "Offline changes are waiting to reconnect. Reloading would discard them.",

@@ -3346,6 +3346,55 @@ openclaw-tooltip.sidebar-hover-tooltip {
   justify-content: space-between;
 }
 
+/* Share the content grid area without resizing or replacing the retained page. */
+.gateway-holding-notice {
+  grid-area: content;
+  align-self: start;
+  justify-self: center;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 32px));
+  margin: calc(var(--openclaw-native-titlebar-height, 0px) + 56px) 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+
+.gateway-holding-notice__icon {
+  display: flex;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--warn);
+}
+
+.gateway-holding-notice__icon > :is(svg, .session-run-spinner) {
+  width: 100%;
+  height: 100%;
+  --accent: currentColor;
+}
+
+.gateway-holding-notice__content {
+  flex: 1;
+  min-width: 0;
+}
+
+.gateway-holding-notice h2 {
+  margin: 0 0 4px;
+  font-size: var(--control-ui-text-sm);
+}
+
+.gateway-holding-notice p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--control-ui-text-xs);
+  line-height: 1.5;
+}
+
 .sidebar-shell__footer > .gateway-status-tooltip,
 .sidebar-connection-flag > .gateway-status-tooltip {
   display: flex;

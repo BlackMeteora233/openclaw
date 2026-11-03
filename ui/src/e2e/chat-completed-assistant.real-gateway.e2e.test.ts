@@ -9,7 +9,7 @@ import type { OpenClawTestInstance } from "../../../test/helpers/openclaw-test-i
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-screenshot.ts";
-import { controlUiSessionUrl } from "../test-helpers/control-ui-e2e.ts";
+import { controlUiSessionUrl, pauseVirtualClock } from "../test-helpers/control-ui-e2e.ts";
 import { assertServedUi, chatControls, pairFixture } from "./chat-lifecycle.test-support.ts";
 import { connectChatGateway, createChatGatewayInstance } from "./chat-real-gateway.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
@@ -140,7 +140,10 @@ suite.define(() => {
           hasAnswer?: boolean;
         };
         const reads: HistoryRead[] = [];
+        let connections = 0;
+        let restartAnnounced = false;
         page.on("websocket", (socket) => {
+          connections += 1;
           const pending = new Map<string, { read: HistoryRead; subscribed: boolean }>();
           socket.on("framesent", ({ payload }) => {
             const frame = asOptionalRecord(JSON.parse(String(payload)));
@@ -165,6 +168,13 @@ suite.define(() => {
           });
           socket.on("framereceived", ({ payload }) => {
             const frame = asOptionalRecord(JSON.parse(String(payload)));
+            if (
+              frame?.type === "event" &&
+              frame.event === "shutdown" &&
+              typeof asOptionalRecord(frame.payload)?.restartExpectedMs === "number"
+            ) {
+              restartAnnounced = true;
+            }
             const selected =
               frame?.type === "res" && typeof frame.id === "string"
                 ? pending.get(frame.id)
@@ -353,6 +363,53 @@ suite.define(() => {
         expect(observations[1]?.reads[0]?.cursor).toBe(false);
         expect(observations[1]?.reads[0]?.kind).toBe("window");
         expect(observations[2]?.reads[0]).toMatchObject({ cursor: true, kind: "delta" });
+
+        // SIGUSR2 is the real CLI restart path on POSIX; Windows has no equivalent signal.
+        if (process.platform !== "win32") {
+          const gatewayPid = instance.child?.pid;
+          if (!gatewayPid) {
+            throw new Error("The isolated Gateway fixture has no running command PID");
+          }
+          const retainedComposer = await composer.elementHandle();
+          const retainedPane = await pane.elementHandle();
+          const captureRestart = async (phase: string) => {
+            if (!captureMedia) {
+              return;
+            }
+            const frame = await takeControlUiScreenshotFrame(
+              page,
+              page.locator(".shell"),
+              [composer, pane.getByText(answer, { exact: true })],
+              { animations: "disabled" },
+            );
+            await writeFile(path.join(suite.artifactDir, `gateway-${phase}.png`), frame.png);
+          };
+          await captureRestart("before-restart");
+          await page.clock.install();
+          await pauseVirtualClock(page);
+          const previousConnections = connections;
+          const restartStart = reads.length;
+          // Signal only the fixture command; its custody adapter owns eventual tree cleanup.
+          process.kill(gatewayPid, "SIGUSR2");
+          await page
+            .getByRole("heading", { name: "OpenClaw is restarting", exact: true })
+            .waitFor();
+          expect(restartAnnounced).toBe(true);
+          expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+          expect(await composer.inputValue()).toBe(draft);
+          await captureRestart("restarting");
+
+          await page.clock.resume();
+          await expect.poll(() => connections).toBeGreaterThan(previousConnections);
+          await waitForControlUiGatewayReady(page);
+          await settle(restartStart);
+          await page.locator(".gateway-holding-notice").waitFor({ state: "detached" });
+          expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+          expect(await retainedPane?.evaluate((element) => element.isConnected)).toBe(true);
+          expect(await composer.inputValue()).toBe(draft);
+          expect(await pane.locator('.chat-bubble[data-entry-id="answer"]').count()).toBe(1);
+          await captureRestart("recovered");
+        }
       },
       async ({ page, context }) => {
         const video = page.video();

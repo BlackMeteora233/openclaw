@@ -384,12 +384,48 @@ it("keeps pages interactive through transport loss and fences reload-required", 
   }
 });
 
+it("presents update and restart state while preserving the page through an unrelated outage", async () => {
+  const { owner, runtime, gateway, query, refresh } = await mountShell();
+  owner.routeState = { routeId: "logs" };
+  const publish = gateway();
+  const outlet = query("openclaw-router-outlet");
+  const initialOverlay = runtime.context.overlays.snapshot;
+  const overlay = vi.spyOn(runtime.context.overlays, "snapshot", "get");
+  overlay.mockReturnValue({ ...initialOverlay, updateRunning: true });
+  publish({ phase: "connected" });
+  refresh();
+  expect(query(".gateway-holding-notice h2")?.textContent).toBe("OpenClaw is updating");
+
+  publish({ phase: "connected", restartPending: true });
+  refresh();
+  expect(query(".gateway-holding-notice h2")?.textContent).toBe("OpenClaw is restarting");
+  expect(query("openclaw-router-outlet")).toBe(outlet);
+  expect(outlet?.hasAttribute("inert")).toBe(false);
+
+  publish({ phase: "reconnecting", restartPending: false, offlineStable: true });
+  refresh();
+  expect(query(".gateway-holding-notice h2")?.textContent).toBe("Reconnecting to OpenClaw");
+  expect(query(".gateway-holding-notice")?.textContent).not.toContain("updating");
+  expect(query("openclaw-router-outlet")).toBe(outlet);
+
+  overlay.mockReturnValue(initialOverlay);
+  publish({ phase: "connected", restartPending: false });
+  refresh();
+  expect(query(".gateway-holding-notice")).toBeNull();
+  expect(query("openclaw-router-outlet")).toBe(outlet);
+});
+
 it("keeps one sidebar through drawer and settings takeover transitions", async () => {
   let mobile = false;
   mockMobile(() => mobile);
-  const { owner, view, query, refresh } = await mountShell();
+  const { owner, view, query, refresh, gateway } = await mountShell();
+  gateway()({ phase: "offline", offlineStable: true });
+  refresh();
   const sidebar = query("openclaw-app-sidebar");
   const outlet = query("openclaw-router-outlet");
+  const holding = query(".gateway-holding-notice");
+  expect(holding?.querySelector("button")?.textContent).toBe("Retry now");
+  expect(holding?.hasAttribute("inert")).toBe(false);
   expect(sidebar).toBe(owner.navigationSidebar);
   expect(outlet).not.toBeNull();
   expect(query(".sidebar-resizer")).not.toBeNull();
@@ -403,12 +439,14 @@ it("keeps one sidebar through drawer and settings takeover transitions", async (
   expect(drawer?.contains(sidebar)).toBe(true);
   expect(query(".sidebar-resizer")).toBeNull();
   expect(query("#control-ui-main")?.hasAttribute("inert")).toBe(true);
+  expect(holding?.hasAttribute("inert")).toBe(true);
   expect(query("openclaw-router-outlet")).toBe(outlet);
 
   owner.navDrawerOpen = false;
   flush();
   expect(drawer?.getAttribute("aria-hidden")).toBe("true");
   expect(query("#control-ui-main")?.hasAttribute("inert")).toBe(false);
+  expect(holding?.hasAttribute("inert")).toBe(false);
   expect(query("openclaw-app-sidebar")).toBe(sidebar);
 
   mobile = false;

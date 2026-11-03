@@ -1,6 +1,9 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { expect, it } from "vitest";
 import { defaultControlUiFeatureMethods } from "../test-helpers/control-ui-e2e-defaults.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
+import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-screenshot.ts";
 import {
   controlUiSessionUrl,
   installMockGateway,
@@ -23,6 +26,91 @@ const withPage = (
   );
 
 suite.define(() => {
+  it.each([1280, 390])(
+    "retains the conversation and draft through an announced restart at %ipx",
+    async (width) => {
+      await withPage(width, async ({ page }) => {
+        await page.clock.install();
+        const sessionKey = "agent:main:planned-restart";
+        const gateway = await installMockGateway(page, {
+          sessionKey,
+          historyMessages: [
+            {
+              role: "assistant",
+              content: [{ type: "text", text: "This conversation stays open." }],
+            },
+          ],
+        });
+        await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey));
+        await waitForControlUiGatewayReady(page);
+        await waitForGatewayRecoveryScope(page);
+        const composer = page.locator(".agent-chat__composer-combobox textarea");
+        await composer.fill("Keep this draft through the restart.");
+        const retainedComposer = await composer.elementHandle();
+        const retainedOutlet = await page.locator("openclaw-router-outlet").elementHandle();
+        const capture = async (stage: string) => {
+          if (process.env.OPENCLAW_CAPTURE_UI_PROOF !== "1") {
+            return;
+          }
+          const frame = await takeControlUiScreenshotFrame(
+            page,
+            page.locator(".shell"),
+            [composer],
+            {
+              animations: "disabled",
+            },
+          );
+          await writeFile(
+            path.join(suite.artifactDir, `gateway-holding-${width}-${stage}.png`),
+            frame.png,
+          );
+        };
+        await capture("connected");
+        await pauseVirtualClock(page);
+        await gateway.emitGatewayEvent("shutdown", {
+          reason: "gateway restart",
+          restartExpectedMs: 10_000,
+        });
+        await page.getByRole("heading", { name: "OpenClaw is restarting", exact: true }).waitFor();
+        await gateway.closeLatest(1012, "gateway restarting");
+        await gateway.setOnline(false);
+        await page.clock.runFor(1_000);
+        await capture("restarting");
+        expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+        expect(await composer.inputValue()).toBe("Keep this draft through the restart.");
+        expect(await retainedOutlet?.evaluate((element) => element.hasAttribute("inert"))).toBe(
+          false,
+        );
+
+        await gateway.setOnline(true);
+        await page.clock.runFor(2_000);
+        await waitForControlUiGatewayReady(page);
+        await waitForGatewayRecoveryScope(page);
+        await page.locator(".gateway-holding-notice").waitFor({ state: "detached" });
+        expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+        expect(await retainedOutlet?.evaluate((element) => element.isConnected)).toBe(true);
+        expect(await composer.inputValue()).toBe("Keep this draft through the restart.");
+        expect(await gateway.getRequests("chat.send")).toHaveLength(0);
+        await capture("recovered");
+
+        await gateway.setOnline(false);
+        await page.clock.runFor(2_001);
+        await page
+          .getByRole("heading", { name: "Reconnecting to OpenClaw", exact: true })
+          .waitFor();
+        expect(await page.locator(".gateway-holding-notice").textContent()).not.toContain(
+          "updating",
+        );
+        expect(await page.locator(".gateway-holding-notice").textContent()).not.toContain(
+          "restarting",
+        );
+        await gateway.setOnline(true);
+        await page.clock.runFor(2_000);
+        await waitForControlUiGatewayReady(page);
+      });
+    },
+  );
+
   it("keeps shared chat usable without polling operator-only surfaces", async () => {
     await withPage(
       1280,

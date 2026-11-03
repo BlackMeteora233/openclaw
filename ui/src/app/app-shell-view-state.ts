@@ -261,6 +261,13 @@ export function readShellView(host: ShellViewHost) {
   const collapsedControls = () =>
     !nativeEmbed && navCollapsed() && !onboarding && !settingsTakeover && !mobileNavLayout;
   const shellConnectionStatus = !nativeEmbed && !initialConnection ? connectionStatus : null;
+  const holdingStatus =
+    shellConnectionStatus === "reload-required" ||
+    shellConnectionStatus === "suspending" ||
+    shellConnectionStatus === "suspended"
+      ? null
+      : (shellConnectionStatus ??
+        (!nativeEmbed && gatewayConnected && overlaySnapshot.updateRunning ? "updating" : null));
   const gatewayStatus: GatewayStatusProps = {
     kind: shellConnectionStatus ?? (!nativeEmbed && gatewayConnected ? "connected" : null),
     lastError: shellConnectionStatus ? gatewaySnapshot.lastError : null,
@@ -314,6 +321,7 @@ export function readShellView(host: ShellViewHost) {
     gatewayConnected,
     overlaySnapshot,
     connectionStatus,
+    holdingStatus,
     presentationScope,
     terminalAvailable,
     desktopPanelAvailable,

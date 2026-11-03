@@ -3,7 +3,11 @@ import type { JSX as SolidJSX } from "@solidjs/web";
 import { createMemo, createSignal, lazy, onSettled, Show } from "solid-js";
 import { registerModalSurface } from "../components/overlay-registry.ts";
 import { LazySettingsSidebar } from "../components/settings-sidebar-lazy.tsx";
-import { GatewayStatus, gatewayStatusLabel } from "../components/solid/gateway-status.tsx";
+import {
+  GatewayHoldingNotice,
+  GatewayStatus,
+  gatewayStatusLabel,
+} from "../components/solid/gateway-status.tsx";
 import { Icon } from "../components/solid/icon.tsx";
 import { ShortcutHint } from "../components/solid/kbd.tsx";
 import { ConnectingSplash } from "../components/solid/loading-skeleton.tsx";
@@ -121,11 +125,13 @@ export function ApplicationShell(props: {
   }
   const connectionAnnouncement = createMemo(() => {
     const kind = shellConnectionStatus();
-    return kind
-      ? gatewayStatusLabel(kind, view().gatewayStatus.queuedCount)
-      : view().gatewayConnected
-        ? t("nav.gateway.connected")
-        : "";
+    return view().holdingStatus === "updating"
+      ? t("connection.holding.updating.title")
+      : kind
+        ? gatewayStatusLabel(kind, view().gatewayStatus.queuedCount)
+        : view().gatewayConnected
+          ? t("nav.gateway.connected")
+          : "";
   });
   // Legacy Mac hosts stamp this immutable host class before mounting the shell.
   // The web-chrome flag remains a reactive view read for the current host path.
@@ -453,6 +459,11 @@ export function ApplicationShell(props: {
             />
           </ShellLayoutProvider>
         </main>
+        <GatewayHoldingNotice
+          kind={view().holdingStatus}
+          onRetry={view().callbacks.retryGateway}
+          inert={view().mobileNavLayout && view().navDrawerOpen}
+        />
         <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {connectionAnnouncement()}
         </span>
