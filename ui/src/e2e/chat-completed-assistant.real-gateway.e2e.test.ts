@@ -146,11 +146,18 @@ suite.define(() => {
         const reads: HistoryRead[] = [];
         let connections = 0;
         let connectionsBeforeRestart = 0;
+        let mainFrameNavigations = 0;
+        let mainFrameNavigationsBeforeRestart = 0;
         let closedSockets = 0;
         let socketErrors = 0;
         let restartAnnounced = false;
         let restartRecovered = false;
         const connectOutcomes: Array<{ ok: boolean; code?: string }> = [];
+        page.on("framenavigated", (frame) => {
+          if (frame === page.mainFrame()) {
+            mainFrameNavigations += 1;
+          }
+        });
         page.on("websocket", (socket) => {
           connections += 1;
           const connects = new Set<string>();
@@ -245,6 +252,8 @@ suite.define(() => {
                 restart: {
                   connectionsBeforeRestart,
                   connections,
+                  mainFrameNavigationsBeforeRestart,
+                  mainFrameNavigations,
                   closedSockets,
                   socketErrors,
                   announced: restartAnnounced,
@@ -422,8 +431,34 @@ suite.define(() => {
           if (!gatewayPid) {
             throw new Error("The isolated Gateway fixture has no running command PID");
           }
-          const retainedComposer = await composer.elementHandle();
-          const retainedPane = await pane.elementHandle();
+          const nodes = await Promise.all([composer.elementHandle(), pane.elementHandle()]);
+          try {
+            await page.evaluate(([composer, pane]) => {
+              if (!composer || !pane) {
+                throw new Error("The original chat view is not mounted");
+              }
+              Reflect.set(window, "__openclawRestartView", { document, composer, pane });
+            }, nodes);
+          } finally {
+            await Promise.all(nodes.map((node) => node?.dispose()));
+          }
+          // Read from the current context: reload loses the sentinel; replacement detaches its nodes.
+          const retainedViewState = () =>
+            page.evaluate(() => {
+              const view = Reflect.get(window, "__openclawRestartView") as
+                | { document: Document; composer: Element; pane: Element }
+                | undefined;
+              return {
+                sameDocument: view?.document === document,
+                composerConnected: view?.composer.isConnected === true,
+                paneConnected: view?.pane.isConnected === true,
+              };
+            });
+          const expectedViewState = {
+            sameDocument: true,
+            composerConnected: true,
+            paneConnected: true,
+          };
           const captureRestart = async (phase: string) => {
             if (!captureMedia) {
               return;
@@ -443,6 +478,7 @@ suite.define(() => {
             rootPath: instance.state.root,
           });
           connectionsBeforeRestart = connections;
+          mainFrameNavigationsBeforeRestart = mainFrameNavigations;
           const restartStart = reads.length;
           // Signal only the fixture command; its custody adapter owns eventual tree cleanup.
           process.kill(gatewayPid, "SIGUSR2");
@@ -453,7 +489,7 @@ suite.define(() => {
           try {
             // Hold only transport recovery; transcript layout and real Gateway startup keep running.
             await page.context().setOffline(true);
-            expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+            expect(await retainedViewState()).toEqual(expectedViewState);
             expect(await composer.inputValue()).toBe(draft);
             await pane.getByText(answer, { exact: true }).waitFor({ state: "visible" });
             await captureRestart("restarting");
@@ -469,8 +505,7 @@ suite.define(() => {
           expect(instance.child?.signalCode).toBeNull();
           expect(instance.logs().includes(inProcessRestartMarker)).toBe(true);
           await page.locator(".gateway-holding-notice").waitFor({ state: "detached" });
-          expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
-          expect(await retainedPane?.evaluate((element) => element.isConnected)).toBe(true);
+          expect(await retainedViewState()).toEqual(expectedViewState);
           expect(await composer.inputValue()).toBe(draft);
           expect(await pane.locator('.chat-bubble[data-entry-id="answer"]').count()).toBe(1);
           restartRecovered = true;
