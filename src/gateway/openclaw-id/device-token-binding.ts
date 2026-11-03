@@ -29,6 +29,14 @@ export type DeviceTokenBindingOwner = {
 
 let owner: DeviceTokenBindingOwner | undefined;
 
+/** The authenticated device key of a relayed connection, from its ingress attribution. */
+export function openclawIdPeerKeyOf(attribution: {
+  kind: string;
+  peerKey?: string;
+}): string | undefined {
+  return attribution.kind === "openclaw-id-tunnel" ? attribution.peerKey : undefined;
+}
+
 /** Publishes or clears the binding owner (the OpenClaw ID service does this). */
 export function setDeviceTokenBindingOwner(next: DeviceTokenBindingOwner | undefined): void {
   owner = next;

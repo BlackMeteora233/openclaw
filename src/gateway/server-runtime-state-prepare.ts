@@ -513,6 +513,7 @@ export async function prepareGatewayKernelState(params: {
   const openclawIdService = createOpenClawIdService({
     getConfig: () => getRuntimeConfig().gateway?.openclawId,
     getStateDir: () => resolveStateDir(),
+    getGatewayServer: () => transportBridge.current()?.httpServer,
     log: log.child("openclaw-id"),
   });
   const presencePublisher = createPresencePublisher({

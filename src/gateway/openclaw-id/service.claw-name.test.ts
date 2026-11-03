@@ -19,6 +19,7 @@ function serviceAnswering(body: unknown, status = 200) {
   return createOpenClawIdService({
     getConfig: () => config,
     getStateDir: () => stateDir,
+    getGatewayServer: () => undefined,
     log: { info: vi.fn(), warn: vi.fn() },
   });
 }

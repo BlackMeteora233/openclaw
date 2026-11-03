@@ -44,4 +44,6 @@ export type GatewayWsBrowserOrigin = {
   origin?: string;
   isLocalClient?: boolean;
   remoteControlUiIngress?: RemoteControlUiIngressContext;
+  /** The connection was relayed by the OpenClaw ID tunnel (attested by the private ingress listener). */
+  openclawIdTunnel?: boolean;
 };

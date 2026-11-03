@@ -75,6 +75,7 @@ describe("OpenClaw ID with the Labs switch off", () => {
     const service = createOpenClawIdService({
       getConfig: () => config,
       getStateDir: () => "/nonexistent/openclaw-id-inert-test",
+      getGatewayServer: () => undefined,
       log,
     });
 
@@ -92,6 +93,7 @@ describe("OpenClaw ID with the Labs switch off", () => {
     const service = createOpenClawIdService({
       getConfig: () => config,
       getStateDir: () => "/nonexistent/openclaw-id-inert-test",
+      getGatewayServer: () => undefined,
       log,
     });
     await service.reconcileRuntimePolicy();
