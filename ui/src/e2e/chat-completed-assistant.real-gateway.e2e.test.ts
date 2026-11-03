@@ -5,11 +5,12 @@ import { expect, it, onTestFinished } from "vitest";
 import { persistColdLoadWarmState } from "../../../scripts/lib/control-ui-bench-warm-state.ts";
 import { appendTranscriptMessages } from "../../../src/config/sessions/session-accessor.ts";
 import { ensureGatewayOwnerProfile } from "../../../src/state/user-profiles.ts";
+import { cleanupSessionStateForTest } from "../../../src/test-utils/session-state-cleanup.ts";
 import type { OpenClawTestInstance } from "../../../test/helpers/openclaw-test-instance.ts";
 import { runQaGatewayFixture } from "../../../test/helpers/qa-gateway-cleanup.ts";
 import { waitForControlUiGatewayReady } from "../test-helpers/control-ui-e2e-readiness.ts";
 import { takeControlUiScreenshotFrame } from "../test-helpers/control-ui-e2e-screenshot.ts";
-import { controlUiSessionUrl, pauseVirtualClock } from "../test-helpers/control-ui-e2e.ts";
+import { controlUiSessionUrl } from "../test-helpers/control-ui-e2e.ts";
 import { assertServedUi, chatControls, pairFixture } from "./chat-lifecycle.test-support.ts";
 import { connectChatGateway, createChatGatewayInstance } from "./chat-real-gateway.test-support.ts";
 import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
@@ -141,12 +142,21 @@ suite.define(() => {
         };
         const reads: HistoryRead[] = [];
         let connections = 0;
+        let connectionsBeforeRestart = 0;
+        let closedSockets = 0;
+        let socketErrors = 0;
         let restartAnnounced = false;
+        let restartRecovered = false;
+        const connectOutcomes: Array<{ ok: boolean; code?: string }> = [];
         page.on("websocket", (socket) => {
           connections += 1;
+          const connects = new Set<string>();
           const pending = new Map<string, { read: HistoryRead; subscribed: boolean }>();
           socket.on("framesent", ({ payload }) => {
             const frame = asOptionalRecord(JSON.parse(String(payload)));
+            if (frame?.method === "connect" && typeof frame.id === "string") {
+              connects.add(frame.id);
+            }
             const params = asOptionalRecord(frame?.params);
             const subscribed = frame?.method === "sessions.messages.subscribe";
             const history = subscribed
@@ -168,6 +178,17 @@ suite.define(() => {
           });
           socket.on("framereceived", ({ payload }) => {
             const frame = asOptionalRecord(JSON.parse(String(payload)));
+            if (
+              frame?.type === "res" &&
+              typeof frame.id === "string" &&
+              connects.delete(frame.id)
+            ) {
+              const code = asOptionalRecord(frame.error)?.code;
+              connectOutcomes.push({
+                ok: frame.ok === true,
+                ...(typeof code === "string" && /^[A-Z0-9_]{1,80}$/.test(code) ? { code } : {}),
+              });
+            }
             if (
               frame?.type === "event" &&
               frame.event === "shutdown" &&
@@ -195,7 +216,13 @@ suite.define(() => {
             });
             pending.delete(String(frame.id));
           });
-          socket.on("close", () => pending.clear());
+          socket.on("close", () => {
+            closedSockets += 1;
+            pending.clear();
+          });
+          socket.on("socketerror", () => {
+            socketErrors += 1;
+          });
         });
         const observations: Array<{
           phase: string;
@@ -208,7 +235,26 @@ suite.define(() => {
         onTestFinished(async () => {
           await writeFile(
             path.join(suite.artifactDir, "history-proof.json"),
-            JSON.stringify({ observations, reads }, null, 2),
+            JSON.stringify(
+              {
+                observations,
+                reads,
+                restart: {
+                  connectionsBeforeRestart,
+                  connections,
+                  closedSockets,
+                  socketErrors,
+                  announced: restartAnnounced,
+                  recovered: restartRecovered,
+                  connectOutcomes: connectOutcomes.slice(-8),
+                  gatewayExited: instance.child
+                    ? instance.child.exitCode !== null || instance.child.signalCode !== null
+                    : true,
+                },
+              },
+              null,
+              2,
+            ),
           );
         });
         await page.goto(controlUiSessionUrl(suite.server.baseUrl, sessionKey));
@@ -385,9 +431,12 @@ suite.define(() => {
             await writeFile(path.join(suite.artifactDir, `gateway-${phase}.png`), frame.png);
           };
           await captureRestart("before-restart");
-          await page.clock.install();
-          await pauseVirtualClock(page);
-          const previousConnections = connections;
+          // Parent-side transcript seeds retain leases needed by restart startup maintenance.
+          await cleanupSessionStateForTest({
+            stateDir: instance.stateDir,
+            rootPath: instance.state.root,
+          });
+          connectionsBeforeRestart = connections;
           const restartStart = reads.length;
           // Signal only the fixture command; its custody adapter owns eventual tree cleanup.
           process.kill(gatewayPid, "SIGUSR2");
@@ -395,12 +444,18 @@ suite.define(() => {
             .getByRole("heading", { name: "OpenClaw is restarting", exact: true })
             .waitFor();
           expect(restartAnnounced).toBe(true);
-          expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
-          expect(await composer.inputValue()).toBe(draft);
-          await captureRestart("restarting");
+          try {
+            // Hold only transport recovery; transcript layout and real Gateway startup keep running.
+            await page.context().setOffline(true);
+            expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
+            expect(await composer.inputValue()).toBe(draft);
+            await pane.getByText(answer, { exact: true }).waitFor({ state: "visible" });
+            await captureRestart("restarting");
+          } finally {
+            await page.context().setOffline(false);
+          }
 
-          await page.clock.resume();
-          await expect.poll(() => connections).toBeGreaterThan(previousConnections);
+          await expect.poll(() => connections).toBeGreaterThan(connectionsBeforeRestart);
           await waitForControlUiGatewayReady(page);
           await settle(restartStart);
           await page.locator(".gateway-holding-notice").waitFor({ state: "detached" });
@@ -408,6 +463,7 @@ suite.define(() => {
           expect(await retainedPane?.evaluate((element) => element.isConnected)).toBe(true);
           expect(await composer.inputValue()).toBe(draft);
           expect(await pane.locator('.chat-bubble[data-entry-id="answer"]').count()).toBe(1);
+          restartRecovered = true;
           await captureRestart("recovered");
         }
       },
