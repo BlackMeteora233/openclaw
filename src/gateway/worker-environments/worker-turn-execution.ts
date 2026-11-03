@@ -373,7 +373,6 @@ export async function executeWorkerTurn(
                     modelId: modelRef.model,
                     modelContextWindowTokens: toolPolicy.modelContextWindowTokens,
                     runtimeToolAllowlist: turn.toolsAllow,
-                    skillWorkshop: undefined,
                     // Suppresses Workshop; the skill_library adapter replaces this tool by name.
                     skillLibraryAuthoring,
                     computerTransport: null,
