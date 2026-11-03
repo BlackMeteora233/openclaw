@@ -17,6 +17,7 @@ import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts"
 
 const sessionKey = "agent:main:completed-history-proof";
 const viewport = { width: 1280, height: 900 };
+const inProcessRestartMarker = "restart mode: in-process restart (OPENCLAW_NO_RESPAWN)";
 const captureMedia = Boolean(process.env.OPENCLAW_UI_E2E_ARTIFACT_DIR);
 const prompt = "Compare the saved evidence.";
 const reasoning = ["Check the first source.", "Compare the second source."] as const;
@@ -53,6 +54,8 @@ const suite = createControlUiE2eSuite({
       entrypoint: ["dist/index.js"],
       config: { update: { checkOnStart: false }, browser: { enabled: false } },
     });
+    // The fixture owns this process; inherited CI supervisor hints must not transfer restart custody.
+    instance.env.OPENCLAW_NO_RESPAWN = "1";
     try {
       ensureGatewayOwnerProfile("Synthetic viewer", { env: instance.env });
       await instance.startGateway();
@@ -250,6 +253,9 @@ suite.define(() => {
                   gatewayExited: instance.child
                     ? instance.child.exitCode !== null || instance.child.signalCode !== null
                     : true,
+                  exitCode: instance.child?.exitCode ?? null,
+                  signalCode: instance.child?.signalCode ?? null,
+                  inProcessRestart: instance.logs().includes(inProcessRestartMarker),
                 },
               },
               null,
@@ -458,6 +464,10 @@ suite.define(() => {
           await expect.poll(() => connections).toBeGreaterThan(connectionsBeforeRestart);
           await waitForControlUiGatewayReady(page);
           await settle(restartStart);
+          expect(instance.child?.pid).toBe(gatewayPid);
+          expect(instance.child?.exitCode).toBeNull();
+          expect(instance.child?.signalCode).toBeNull();
+          expect(instance.logs().includes(inProcessRestartMarker)).toBe(true);
           await page.locator(".gateway-holding-notice").waitFor({ state: "detached" });
           expect(await retainedComposer?.evaluate((element) => element.isConnected)).toBe(true);
           expect(await retainedPane?.evaluate((element) => element.isConnected)).toBe(true);
