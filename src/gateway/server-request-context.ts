@@ -64,6 +64,7 @@ type GatewayRequestContextRuntime = Pick<
   | "nodeRegistry"
   | "workerEnvironmentService"
   | "hostDesktopService"
+  | "openclawIdService"
   | "gatewayComputerService"
   | "githubPublicationService"
   | "validateAgentRuntimeApprovalAuthority"
@@ -508,6 +509,7 @@ export function createGatewayRequestContext(
       ? { workerEnvironmentService: runtime.workerEnvironmentService }
       : {}),
     ...(runtime.hostDesktopService ? { hostDesktopService: runtime.hostDesktopService } : {}),
+    ...(runtime.openclawIdService ? { openclawIdService: runtime.openclawIdService } : {}),
     ...(runtime.gatewayComputerService
       ? { gatewayComputerService: runtime.gatewayComputerService }
       : {}),
