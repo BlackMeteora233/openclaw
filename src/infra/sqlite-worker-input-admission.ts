@@ -54,9 +54,7 @@ export class SqliteWorkerInputAdmission {
       bytes > this.owner.maxMessageBytes ||
       this.owner.queuedBytes() + this.bytes + bytes > this.owner.maxQueuedBytes
     ) {
-      return Promise.reject(
-        new SqliteWorkerError("SQLite worker open input capacity reached", "overloaded"),
-      );
+      throw new SqliteWorkerError("SQLite worker open input capacity reached", "overloaded");
     }
     const settled = createDeferredCore();
     this.opens.add(settled.promise);
